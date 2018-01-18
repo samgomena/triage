@@ -3,10 +3,11 @@
 # 2. Gensim for word2vec
 # 3. Keras with tensorflow/theano backend
 
+import json, re, nltk, string
+from os import path
 
 import numpy as np
 np.random.seed(1337)
-import json, re, nltk, string
 from nltk.corpus import wordnet
 from gensim.models import Word2Vec
 from keras.preprocessing import sequence
@@ -24,8 +25,10 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 print("Finished importing dependencies")
 
-open_bugs_json = '/home/ubuntu/workspace/triage/data/deep_data.json'
-closed_bugs_json = '/home/ubuntu/workspace/triage/data/train_test_json/classifier_data_10.json'
+cwd = path.dirname(__file__)
+
+open_bugs_json = path.join(path.abspath('./'), 'data/deep_data.json')
+closed_bugs_json = path.join(path.abspath('./'), 'data/train_test_json/classifier_data_10.json')
 
 #========================================================================================
 # Initializeing Hyper parameter
@@ -42,7 +45,7 @@ min_sentence_length = 15
 rankK = 10
 batch_size = 32
 
-CUTOFF = 10  # Used to truncate data to reduce processing power needed
+CUTOFF = 1000  # Used to truncate data to reduce processing power needed
 
 #========================================================================================
 # Preprocess the open bugs, extract the vocabulary and learn the word2vec representation
@@ -126,7 +129,7 @@ print("Completed closed bug data")
 # Split cross validation sets and perform deep learning + softamx based classification
 #========================================================================================
 totalLength = len(all_data)
-splitLength = totalLength / (numCV + 1)
+splitLength = int(totalLength / (numCV + 1))
 
 for i in range(1, numCV + 1):
     # Split cross validation set
@@ -143,16 +146,16 @@ for i in range(1, numCV + 1):
     final_test_data = []
     final_test_owner = []
     for j, item in enumerate(train_data):
-    	current_train_filter = [word for word in item if word in vocabulary]
-    	if len(current_train_filter) >= min_sentence_length:  
-    	  updated_train_data.append(current_train_filter)
-    	  updated_train_owner.append(train_owner[j])  
-    	  
+        current_train_filter = [word for word in item if word in vocabulary]
+        if len(current_train_filter) >= min_sentence_length:  
+          updated_train_data.append(current_train_filter)
+          updated_train_owner.append(train_owner[j])  
+          
     for j, item in enumerate(test_data):
-    	current_test_filter = [word for word in item if word in vocabulary]  
-    	if len(current_test_filter) >= min_sentence_length:
-    	  final_test_data.append(current_test_filter)    	  
-    	  final_test_owner.append(test_owner[j])    	  
+        current_test_filter = [word for word in item if word in vocabulary]  
+        if len(current_test_filter) >= min_sentence_length:
+          final_test_data.append(current_test_filter)          
+          final_test_owner.append(test_owner[j])          
     
     # Remove data from test set that is not there in train set
     train_owner_unique = set(updated_train_owner)
@@ -162,9 +165,9 @@ for i in range(1, numCV + 1):
     updated_test_owner = []
     updated_test_data_length = []
     for j in range(len(final_test_owner)):
-    	if final_test_owner[j] not in unwanted_owner:
-    		updated_test_data.append(final_test_data[j])
-    		updated_test_owner.append(final_test_owner[j])
+        if final_test_owner[j] not in unwanted_owner:
+            updated_test_data.append(final_test_data[j])
+            updated_test_owner.append(final_test_owner[j])
 
     unique_train_label = list(set(updated_train_owner))
     classes = np.array(unique_train_label)
@@ -180,10 +183,10 @@ for i in range(1, numCV + 1):
                 X_train[j, sequence_cnt, :] = wordvec_model[item] 
                 sequence_cnt = sequence_cnt + 1                
                 if sequence_cnt == max_sentence_len-1:
-      			        break                
+                          break                
         for k in range(sequence_cnt, max_sentence_len):
-            X_train[j, k, :] = np.zeros((1,embed_size_word2vec))        
-        Y_train[j,0] = unique_train_label.index(updated_train_owner[j])
+            X_train[j, k, :] = np.zeros((1, embed_size_word2vec))        
+        Y_train[j, 0] = unique_train_label.index(updated_train_owner[j])
     
     X_test = np.empty(shape=[len(updated_test_data), max_sentence_len, embed_size_word2vec], dtype='float32')
     Y_test = np.empty(shape=[len(updated_test_owner),1], dtype='int32')
@@ -195,18 +198,20 @@ for i in range(1, numCV + 1):
                 X_test[j, sequence_cnt, :] = wordvec_model[item] 
                 sequence_cnt = sequence_cnt + 1                
                 if sequence_cnt == max_sentence_len-1:
-      			        break                
+                          break                
         for k in range(sequence_cnt, max_sentence_len):
-            X_test[j, k, :] = np.zeros((1,embed_size_word2vec))        
-        Y_test[j,0] = unique_train_label.index(updated_test_owner[j])
+            X_test[j, k, :] = np.zeros((1, embed_size_word2vec))        
+        Y_test[j, 0] = unique_train_label.index(updated_test_owner[j])
         
     y_train = np_utils.to_categorical(Y_train, len(unique_train_label))
     y_test = np_utils.to_categorical(Y_test, len(unique_train_label))
+
+
+    # TODO: Add x_train and x_test
     
     # Construct the deep learning model
+    print("Creating Model")
     sequence = Input(shape=(max_sentence_len, embed_size_word2vec), dtype='float32')
-    print("Sequence: ", sequence)
-    
     forwards_1 = LSTM(1024)(sequence)
     after_dp_forward_4 = Dropout(0.20)(forwards_1) 
     backwards_1 = LSTM(1024, go_backwards=True)(sequence)
@@ -217,25 +222,25 @@ for i in range(1, numCV + 1):
     model = Model(input=sequence, output=output)            
     rms = RMSprop(lr=0.001, rho=0.9, epsilon=1e-08)
     model.compile(loss='categorical_crossentropy', optimizer=rms, metrics=['accuracy'])    
-    hist = model.fit(X_train, y_train,
-              batch_size=batch_size,
-              epochs=20)  # Rename to nb_epochs to epochs // Value original: 200
+    hist = model.fit(X_train, y_train, batch_size=batch_size, epochs=20)  # Rename nb_epochs to epochs // Value original: 200
     
     predict = model.predict(X_test)        
     accuracy = []
     sortedIndices = []
     pred_classes = []
+    if len(predict) == 0:
+        exit(1)  # Avoid divide by zero
     for ll in predict:
-  	    sortedIndices.append(sorted(range(len(ll)), key=lambda ii: ll[ii], reverse=True))
+          sortedIndices.append(sorted(range(len(ll)), key=lambda ii: ll[ii], reverse=True))
     for k in range(1, rankK + 1):
-      	id = 0
-      	trueNum = 0
-      	for sortedInd in sortedIndices:            
-    		pred_classes.append(classes[sortedInd[:k]])
-    		if testls[id] in classes[sortedInd[:k]]:
-        		  trueNum += 1			
-        	id += 1
-      	accuracy.append((float(trueNum) / len(predict)) * 100)
+          id = 0
+          trueNum = 0
+          for sortedInd in sortedIndices:
+            pred_classes.append(classes[sortedInd[:k]])
+            if y_test[id] in classes[sortedInd[:k]]:
+                  trueNum += 1            
+            id += 1
+          accuracy.append((float(trueNum) / len(predict)) * 100)
     print("Test accuracy: ", accuracy)       
     
     train_result = hist.history        
@@ -252,7 +257,7 @@ splitLength = totalLength / (numCV + 1)
 
 for i in range(1, numCV+1):
     # Split cross validation set
-    print i
+    print("Starting cross validation {0}".format(i))
     train_data = all_data[:i*splitLength-1]
     test_data = all_data[i*splitLength:(i+1)*splitLength-1]
     train_owner = all_owner[:i*splitLength-1]
@@ -265,16 +270,16 @@ for i in range(1, numCV+1):
     final_test_data = []
     final_test_owner = []
     for j, item in enumerate(train_data):
-    	current_train_filter = [word for word in item if word in vocabulary]
-    	if len(current_train_filter)>=min_sentence_length:  
-    	  updated_train_data.append(current_train_filter)
-    	  updated_train_owner.append(train_owner[j])  
-    	  
+        current_train_filter = [word for word in item if word in vocabulary]
+        if len(current_train_filter)>=min_sentence_length:  
+          updated_train_data.append(current_train_filter)
+          updated_train_owner.append(train_owner[j])  
+          
     for j, item in enumerate(test_data):
-    	current_test_filter = [word for word in item if word in vocabulary]  
-    	if len(current_test_filter)>=min_sentence_length:
-    	  final_test_data.append(current_test_filter)    	  
-    	  final_test_owner.append(test_owner[j])    	  
+        current_test_filter = [word for word in item if word in vocabulary]  
+        if len(current_test_filter)>=min_sentence_length:
+          final_test_data.append(current_test_filter)          
+          final_test_owner.append(test_owner[j])          
     
     # Remove data from test set that is not there in train set
     train_owner_unique = set(updated_train_owner)
@@ -284,21 +289,21 @@ for i in range(1, numCV+1):
     updated_test_owner = []
     updated_test_data_length = []
     for j in range(len(final_test_owner)):
-    	if final_test_owner[j] not in unwanted_owner:
-    		updated_test_data.append(final_test_data[j])
-    		updated_test_owner.append(final_test_owner[j])  
+        if final_test_owner[j] not in unwanted_owner:
+            updated_test_data.append(final_test_data[j])
+            updated_test_owner.append(final_test_owner[j])  
     
     train_data = []
     for item in updated_train_data:
-    	  train_data.append(' '.join(item))
+          train_data.append(' '.join(item))
          
     test_data = []
     for item in updated_test_data:
-    	  test_data.append(' '.join(item))
+          test_data.append(' '.join(item))
     
     vocab_data = []
     for item in vocabulary:
-    	  vocab_data.append(item)
+          vocab_data.append(item)
     
     # Extract tf based bag of words representation
     tfidf_transformer = TfidfTransformer(use_idf=False)
@@ -306,17 +311,17 @@ for i in range(1, numCV+1):
     
     train_counts = count_vect.fit_transform(train_data)       
     train_feats = tfidf_transformer.fit_transform(train_counts)
-    print train_feats.shape
+    print(train_feats.shape)
     
     test_counts = count_vect.transform(test_data)
     test_feats = tfidf_transformer.transform(test_counts)
-    print test_feats.shape
-    print "======================="
+    print(test_feats.shape)
+    print("=" * 20)
     
     # # perform classifification
     # for classifier in range(1, 5):
     #     #classifier = 3 # 1 - Naive Bayes, 2 - Softmax, 3 - cosine distance, 4 - SVM
-    #     print classifier 
+    #     print(classifier) 
     #     if classifier == 1:            
     #         classifierModel = MultinomialNB(alpha=0.01)        
     #         classifierModel = OneVsRestClassifier(classifierModel).fit(train_feats, updated_train_owner)
