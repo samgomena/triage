@@ -4,7 +4,7 @@
 # 3. Keras with tensorflow/theano backend
 
 import json, re, nltk, string
-from os import path
+from os import path, sep
 
 import numpy as np
 np.random.seed(1337)
@@ -35,7 +35,7 @@ closed_bugs_json = path.join(path.abspath('./'), 'data/train_test_json/classifie
 #========================================================================================
 #1. Word2vec parameters
 min_word_frequency_word2vec = 5
-embed_size_word2vec = 200
+embed_size_word2vec = 100
 context_window_word2vec = 5
 
 #2. Classifier hyperparameters
@@ -45,7 +45,7 @@ min_sentence_length = 15
 rankK = 10
 batch_size = 32
 
-CUTOFF = 1000  # Used to truncate data to reduce processing power needed
+CUTOFF = -1  # Used to truncate data to reduce processing power needed
 
 #========================================================================================
 # Preprocess the open bugs, extract the vocabulary and learn the word2vec representation
@@ -54,6 +54,11 @@ with open(open_bugs_json) as data_file:
     data = json.load(data_file, strict=False)
 
 all_data = []
+CUTOFF = len(data) // 4
+
+# regex for removing hex values
+hex_sub = re.compile(r'(\w+)0x\w+')
+
 for item in data[:CUTOFF]:
     #1. Remove \r 
     current_title = item['issue_title'].replace('\r', ' ')
@@ -64,8 +69,8 @@ for item in data[:CUTOFF]:
     start_loc = current_desc.find("Stack trace:")
     current_desc = current_desc[:start_loc]    
     #4. Remove hex code
-    current_desc = re.sub(r'(\w+)0x\w+', '', current_desc)
-    current_title= re.sub(r'(\w+)0x\w+', '', current_title)    
+    current_desc = re.sub(hex_sub, '', current_desc)
+    current_title = re.sub(hex_sub, '', current_title)    
     #5. Change to lower case
     current_desc = current_desc.lower()
     current_title = current_title.lower()    
@@ -82,12 +87,19 @@ for item in data[:CUTOFF]:
 
 print("Finished processing open bug data")
 
+
 # Learn the word2vec model and extract vocabulary
-wordvec_model = Word2Vec(all_data, min_count=min_word_frequency_word2vec, size=embed_size_word2vec, window=context_window_word2vec)
+print("Creating vector space model from open bug data")
+wordvec_model = Word2Vec(all_data, min_count=min_word_frequency_word2vec, size=embed_size_word2vec, window=context_window_word2vec, workers=4)
 vocabulary = wordvec_model.wv.vocab
 vocab_size = len(vocabulary)
 
 print("Vocab size of open bug data: {0}".format(vocab_size))
+
+# wordvec_model.save(ath.join(path.curdir + sep, "word2vec_model"))
+# print("Saved Word2Vec model to the current directory")
+
+
 #========================================================================================
 # Preprocess the closed bugs, using the extracted the vocabulary
 #========================================================================================
@@ -96,6 +108,8 @@ with open(closed_bugs_json) as data_file:
 
 all_data = []
 all_owner = []    
+
+
 for item in data[:CUTOFF]:
     #1. Remove \r 
     current_title = item['issue_title'].replace('\r', ' ')
@@ -106,8 +120,8 @@ for item in data[:CUTOFF]:
     start_loc = current_desc.find("Stack trace:")
     current_desc = current_desc[:start_loc]
     #4. Remove hex code
-    current_desc = re.sub(r'(\w+)0x\w+', '', current_desc)
-    current_title= re.sub(r'(\w+)0x\w+', '', current_title)
+    current_desc = re.sub(hex_sub, '', current_desc)
+    current_title= re.sub(hex_sub, '', current_title)
     #5. Change to lower case
     current_desc = current_desc.lower()
     current_title = current_title.lower()
